@@ -7,7 +7,8 @@
     <!-- Makes the page responsive on different screen sizes. -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <title>Genesys Messenger API Demo</title>
+    <!-- Page title shown in the browser tab. -->
+    <title>Genesys Cloud Integration POC</title>
 
     <!-- Application stylesheet. -->
     <link rel="stylesheet" href="style.css">
@@ -15,42 +16,307 @@
 
 <body>
 
+    <!-- ====================================================== -->
+    <!-- Page Header                                             -->
+    <!-- ====================================================== -->
+
+    <header class="site-header">
+
+        <div class="header-content">
+
+            <!-- Main project title. -->
+            <h1>Genesys Cloud Integration</h1>
+
+            <!-- Short description of the POC. -->
+            <p>
+                Authenticated Web Messaging POC
+            </p>
+
+        </div>
+
+    </header>
+
+
+    <!-- ====================================================== -->
+    <!-- Main Application                                        -->
+    <!-- ====================================================== -->
+
     <main class="container">
 
-        <h1>Genesys Messenger API Demo</h1>
+        <!-- Introductory description of the project. -->
+        <section class="hero">
+
+            <span class="badge">
+                API Integration Demo
+            </span>
+
+            <h2>
+                Auth0 + REST API + Genesys Cloud
+            </h2>
+
+            <p>
+                A single-page demonstration of authenticated
+                customer access, REST API integration, and
+                Genesys Cloud Web Messenger.
+            </p>
+
+        </section>
+
+
+        <!-- ================================================== -->
+        <!-- Authentication / Customer Information               -->
+        <!-- ================================================== -->
 
         <section class="card">
 
-            <h2>Authentication</h2>
+            <div class="card-header">
 
-            <!-- Auth0 login button. -->
-            <button id="auth0LoginButton" disabled>
-                Login with Auth0
-            </button>
+                <div>
+                    <span class="section-label">
+                        AUTHENTICATION
+                    </span>
 
-            <div id="customerInfo">
+                    <h2>
+                        Customer Profile
+                    </h2>
+                </div>
+
+                <!-- Auth0 login button. -->
+                <button
+                    id="auth0LoginButton"
+                    disabled>
+                    Login with Auth0
+                </button>
+
+            </div>
+
+
+            <!--
+                app.js updates this container after
+                successful authentication and API retrieval.
+            -->
+            <div
+                id="customerInfo"
+                class="customer-info">
+
                 <p>
                     Not authenticated.
                 </p>
+
             </div>
 
         </section>
 
-        <section class="card">
 
-            <h2>Genesys Messenger</h2>
+        <!-- ================================================== -->
+        <!-- Genesys Messenger                                   -->
+        <!-- ================================================== -->
 
-            <!-- Opens the Genesys Messenger widget. -->
-            <button id="chatButton">
-                Open Chat
-            </button>
+        <section class="card messenger-card">
+
+            <div class="card-header">
+
+                <div>
+
+                    <span class="section-label">
+                        GENESYS CLOUD
+                    </span>
+
+                    <h2>
+                        Web Messenger
+                    </h2>
+
+                </div>
+
+                <!-- Opens the Genesys Messenger widget. -->
+                <button
+                    id="chatButton"
+                    class="primary-button">
+
+                    Start Conversation
+
+                </button>
+
+            </div>
+
+
+            <p class="card-description">
+
+                Start an authenticated conversation with
+                Genesys Cloud using OpenID Connect and
+                Authenticated Web Messaging.
+
+            </p>
+
+        </section>
+
+
+        <!-- ================================================== -->
+        <!-- Integration Architecture                           -->
+        <!-- ================================================== -->
+
+        <section class="card architecture-card">
+
+            <span class="section-label">
+                ARCHITECTURE
+            </span>
+
+            <h2>
+                Integration Flow
+            </h2>
+
+            <p class="card-description">
+
+                The POC demonstrates how authentication,
+                customer data, and messaging work together.
+
+            </p>
+
+
+            <!-- Architecture flow. -->
+            <div class="architecture-flow">
+
+                <div class="architecture-step">
+
+                    <strong>
+                        Auth0
+                    </strong>
+
+                    <span>
+                        OIDC / PKCE
+                    </span>
+
+                </div>
+
+
+                <div class="flow-arrow">
+                    →
+                </div>
+
+
+                <div class="architecture-step">
+
+                    <strong>
+                        Customer API
+                    </strong>
+
+                    <span>
+                        REST API
+                    </span>
+
+                </div>
+
+
+                <div class="flow-arrow">
+                    →
+                </div>
+
+
+                <div class="architecture-step">
+
+                    <strong>
+                        Genesys Cloud
+                    </strong>
+
+                    <span>
+                        Web Messenger
+                    </span>
+
+                </div>
+
+
+                <div class="flow-arrow">
+                    →
+                </div>
+
+
+                <div class="architecture-step">
+
+                    <strong>
+                        Architect
+                    </strong>
+
+                    <span>
+                        Customer Identity
+                    </span>
+
+                </div>
+
+            </div>
+
+        </section>
+
+
+        <!-- ================================================== -->
+        <!-- Technologies                                        -->
+        <!-- ================================================== -->
+
+        <section class="technologies">
+
+            <span class="section-label">
+                TECHNOLOGIES
+            </span>
+
+            <div class="technology-list">
+
+                <span class="technology">
+                    Genesys Cloud
+                </span>
+
+                <span class="technology">
+                    Auth0
+                </span>
+
+                <span class="technology">
+                    OpenID Connect
+                </span>
+
+                <span class="technology">
+                    OAuth 2.0
+                </span>
+
+                <span class="technology">
+                    PKCE
+                </span>
+
+                <span class="technology">
+                    REST API
+                </span>
+
+                <span class="technology">
+                    Node.js
+                </span>
+
+                <span class="technology">
+                    Express
+                </span>
+
+            </div>
 
         </section>
 
     </main>
 
+
     <!-- ====================================================== -->
-    <!-- Genesys Web Messenger                                  -->
+    <!-- Footer                                                  -->
+    <!-- ====================================================== -->
+
+    <footer class="site-footer">
+
+        <p>
+            Genesys Cloud Integration POC
+        </p>
+
+        <p>
+            Built with Node.js, Express, Auth0 and Genesys Cloud.
+        </p>
+
+    </footer>
+
+
+    <!-- ====================================================== -->
+    <!-- Genesys Web Messenger                                   -->
     <!-- ====================================================== -->
 
     <!--
@@ -73,6 +339,7 @@
                 // Queue Genesys commands until the
                 // Genesys library has finished loading.
                 (g[e].q = g[e].q || []).push(arguments);
+
             };
 
             // Record when the Genesys bootstrap started.
@@ -117,6 +384,7 @@
 
     </script>
 
+
     <!-- ====================================================== -->
     <!-- Auth0 SPA SDK                                           -->
     <!-- ====================================================== -->
@@ -129,8 +397,9 @@
         src="https://cdn.auth0.com/js/auth0-spa-js/2.4/auth0-spa-js.production.js">
     </script>
 
+
     <!-- ====================================================== -->
-    <!-- Application JavaScript                                 -->
+    <!-- Application JavaScript                                  -->
     <!-- ====================================================== -->
 
     <!--

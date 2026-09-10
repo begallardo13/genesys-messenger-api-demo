@@ -262,19 +262,22 @@ async function initializeAuth0() {
             await customerResponse.json();
 
 
-        // Store the customer for later use.
+        // Store the customer returned by our protected REST API.
+        // This proves that Auth0 authentication can be used to
+        // retrieve application-specific customer information.
         loggedInCustomer =
             customer;
 
 
-        // Display customer information.
+        // Display the actual Auth0 identity in the profile card.
+        // The unique ID comes from the Auth0 "sub" claim.
+        // The name and email come directly from the Auth0 profile.
         customerInfo.innerHTML = `
-            <h3>Authenticated Customer</h3>
-            <p><strong>ID:</strong> ${customer.customerId}</p>
-            <p><strong>Name:</strong> ${customer.name}</p>
-            <p><strong>Email:</strong> ${customer.email}</p>
-            <p><strong>Account Type:</strong> ${customer.accountType}</p>
-        `;
+            <h3>Authenticated Identity</h3>
+            <p><strong>ID:</strong> ${user.sub}</p>
+            <p><strong>Name:</strong> ${user.name}</p>
+            <p><strong>Email:</strong> ${user.email}</p>
+`       ;
 
 
         console.log(
