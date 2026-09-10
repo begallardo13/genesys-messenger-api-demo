@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+
+    <!-- Makes the page responsive on different screen sizes. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>Genesys Messenger API Demo</title>
+
+    <!-- Application stylesheet. -->
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <main class="container">
+
+        <h1>Genesys Messenger API Demo</h1>
+
+        <section class="card">
+
+            <h2>Authentication</h2>
+
+            <!-- Auth0 login button. -->
+            <button id="auth0LoginButton" disabled>
+                Login with Auth0
+            </button>
+
+            <div id="customerInfo">
+                <p>
+                    Not authenticated.
+                </p>
+            </div>
+
+        </section>
+
+        <section class="card">
+
+            <h2>Genesys Messenger</h2>
+
+            <!-- Opens the Genesys Messenger widget. -->
+            <button id="chatButton">
+                Open Chat
+            </button>
+
+        </section>
+
+    </main>
+
+    <!-- ====================================================== -->
+    <!-- Genesys Web Messenger                                  -->
+    <!-- ====================================================== -->
+
+    <!--
+        Genesys creates window.Genesys here.
+
+        This script MUST appear before app.js because
+        app.js uses window.Genesys.
+    -->
+    <script
+        type="text/javascript"
+        charset="utf-8">
+
+        (function (g, e, n, es, ys) {
+
+            // Create the Genesys command queue function.
+            g['_genesysJs'] = e;
+
+            g[e] = g[e] || function () {
+
+                // Queue Genesys commands until the
+                // Genesys library has finished loading.
+                (g[e].q = g[e].q || []).push(arguments);
+            };
+
+            // Record when the Genesys bootstrap started.
+            g[e].t = 1 * new Date();
+
+            // Store the Genesys configuration.
+            g[e].c = es;
+
+            // Create the Genesys bootstrap script element.
+            ys = document.createElement('script');
+
+            // Load the Genesys library asynchronously.
+            ys.async = 1;
+
+            // Genesys bootstrap URL.
+            ys.src =
+                'https://apps.mypurecloud.com/genesys-bootstrap/genesys.min.js';
+
+            // Set the character encoding.
+            ys.charset = 'utf-8';
+
+            // Add the Genesys script to the page.
+            document.head.appendChild(ys);
+
+        })(
+
+            window,
+
+            'Genesys',
+
+            'https://apps.mypurecloud.com/genesys-bootstrap/genesys.min.js',
+
+            {
+                environment: 'prod',
+
+                // Authenticated Web Messenger deployment.
+                deploymentId:
+                    '2590d6dc-8da0-4f3e-a9e2-081cfdb4a2bc'
+            }
+
+        );
+
+    </script>
+
+    <!-- ====================================================== -->
+    <!-- Auth0 SPA SDK                                           -->
+    <!-- ====================================================== -->
+
+    <!--
+        Auth0 SDK must load before app.js because app.js
+        uses the global auth0 object.
+    -->
+    <script
+        src="https://cdn.auth0.com/js/auth0-spa-js/2.4/auth0-spa-js.production.js">
+    </script>
+
+    <!-- ====================================================== -->
+    <!-- Application JavaScript                                 -->
+    <!-- ====================================================== -->
+
+    <!--
+        Our application code loads last so both Genesys and
+        Auth0 have already been initialized/created.
+    -->
+    <script src="app.js"></script>
+
+</body>
+
+</html>
