@@ -9,7 +9,9 @@ const path = require("path");
 const josePromise = import("jose");
 
 const app = express();
-const PORT = 3000;
+// Use Render's assigned port in production.
+// Fall back to port 3000 when running locally.
+const PORT = process.env.PORT || 3000;
 
 // ============================================================
 // Environment configuration
