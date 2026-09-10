@@ -57,6 +57,10 @@ let genesysAuthenticated =
         "genesys_auth_code"
     ) !== null;
 
+// Tracks whether the user explicitly requested a Genesys conversation.
+// This prevents AuthProvider startup from redirecting to Auth0.
+let genesysChatRequested = false;
+
 
 // ============================================================
 // DOM references
@@ -203,9 +207,11 @@ async function initializeAuth0() {
     }
 
 
-    // Nothing else to do if the normal website
-    // user is not authenticated.
-    if (!isAuthenticated) {
+    // Only continue to retrieve the customer profile when
+    // this page load came from an Auth0 login callback.
+    // This prevents an existing Auth0 session from
+    // automatically logging the user in when they revisit the site.
+    if (!isAuthenticated || !hasAuthCallback) {
 
         return;
     }
@@ -718,19 +724,34 @@ window.Genesys(
                 // start the Genesys-specific Auth0 login flow.
                 if (!authCode || !nonce) {
 
-                console.log(
-                    "No Genesys authorization code found. Starting authentication."
-                );
+    // Do not redirect during page startup.
+    // Authentication is only started after the user
+    // explicitly requests a Genesys conversation.
+    if (!genesysChatRequested) {
 
-                // Redirect to Auth0 to obtain the authorization code.
-                startGenesysAuthentication();
+        console.log(
+            "Genesys authentication requested during startup. Waiting for user action."
+        );
 
-                // The browser will navigate away, so there is no
-                // authentication data to resolve at this moment.
-                event.resolve();
+        // Resolve without starting Auth0 authentication.
+        event.resolve();
 
-                return;
-                }
+        return;
+    }
+
+    console.log(
+        "User requested a conversation. Starting Genesys authentication."
+    );
+
+    // Redirect to Auth0 to obtain the authorization code.
+    startGenesysAuthentication();
+
+    // The browser will navigate away, so there is no
+    // authentication data to resolve at this moment.
+    event.resolve();
+
+    return;
+}
 
 
                 console.log(
@@ -892,10 +913,13 @@ chatButton.addEventListener(
     "click",
     () => {
 
+        // Record that the user explicitly requested a conversation.
+        // This allows Genesys authentication to start when needed.
+        genesysChatRequested = true;
+
         console.log(
             "Chat button clicked."
         );
-
 
         if (genesysAuthenticated) {
 
