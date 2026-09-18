@@ -66,7 +66,7 @@ app.use(express.static("public"));
 
 const customers = [
     {
-        // Auth0 "sub" is the unique identity for this customer.
+        // Auth0 "sub" uniquely identifies Bien's Auth0 account.
         auth0Id: "auth0|6a9e6ac72c8bbd2f93e5f7b0",
 
         // Customer information used by the application.
@@ -75,8 +75,16 @@ const customers = [
         accountType: "Premium"
     },
     {
+        // Auth0 "sub" uniquely identifies the CGC demo account.
+        auth0Id: "auth0|6aad7f245a917f683785e497",
+
+        // Customer information used by the application.
+        name: "CGC Demo",
+        email: "cgcdemo@ibex.co",
+        accountType: "Standard"
+    },
+    {
         // Placeholder Auth0 identity for the second demo customer.
-        // Replace this with Jane's real Auth0 "sub" when needed.
         auth0Id: "auth0|jane-demo-user",
 
         // Customer information used by the application.
