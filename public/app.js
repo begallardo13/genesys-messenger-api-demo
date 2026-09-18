@@ -9,7 +9,13 @@ const auth0Config = {
     // Public SPA client ID.
     clientId: "18x4fdXSQJWKAGiGuQ78E2E5miScZ1EG",
 
+    // Persist the Auth0 SPA session across full-page redirects.
+    // This is needed because Genesys authentication redirects
+    // the browser to /genesys-callback and back.
+    cacheLocation: "localstorage",
+
     authorizationParams: {
+            
         // Normal website Auth0 callback.
         redirect_uri:
             window.location.origin + "/callback",
@@ -50,6 +56,9 @@ let auth0AccessToken = null;
 // Customer returned by our protected API.
 let loggedInCustomer = null;
 
+// Prevent multiple conversation-start requests at the same time.
+let conversationStarting = false;
+
 // Indicates that a Genesys Auth0 authorization code
 // is available for Messenger.
 let genesysAuthenticated =
@@ -57,9 +66,9 @@ let genesysAuthenticated =
         "genesys_auth_code"
     ) !== null;
 
-// Tracks whether the user explicitly requested a Genesys conversation.
-// This prevents AuthProvider startup from redirecting to Auth0.
-let genesysChatRequested = false;
+// Stores the Genesys AuthProvider instance.
+// We use this to start authentication only when the user requests a conversation.
+let genesysAuthProvider = null;
 
 
 // ============================================================
@@ -75,6 +84,14 @@ const auth0LoginButton =
 const chatButton =
     document.getElementById("chatButton");
 
+// Get the Messenger card so we can show it
+// only after the customer signs in with Auth0.
+const messengerCard =
+    document.getElementById("messengerCard");
+
+// Hide the Messenger card until the customer
+// has successfully signed in with Auth0.
+messengerCard.style.display = "none";
 
 // ============================================================
 // Normal Auth0 SPA — Get API access token
@@ -207,14 +224,19 @@ async function initializeAuth0() {
     }
 
 
-    // Only continue to retrieve the customer profile when
-    // this page load came from an Auth0 login callback.
-    // This prevents an existing Auth0 session from
-    // automatically logging the user in when they revisit the site.
-    if (!isAuthenticated || !hasAuthCallback) {
+    // Stop here only when the user is not authenticated.
+    // An existing Auth0 session should also restore the
+    // customer profile after a page refresh or Genesys redirect.
+    if (!isAuthenticated) {
 
-        return;
-    }
+    // Display a clear logged-out state in the profile card.
+    customerInfo.innerHTML = `
+        <h3>Not signed in</h3>
+        <p>Sign in to retrieve your customer profile.</p>
+    `;
+
+    return;
+}
 
 
     // Retrieve the authenticated Auth0 user.
@@ -271,19 +293,27 @@ async function initializeAuth0() {
         // Store the customer returned by our protected REST API.
         // This proves that Auth0 authentication can be used to
         // retrieve application-specific customer information.
-        loggedInCustomer =
-            customer;
+        loggedInCustomer = customer;
+
+        // Reveal the Messenger card after the customer
+        // has successfully authenticated with Auth0
+        // and their customer profile was retrieved.
+        messengerCard.style.display = "block";
+
+        // Hide the login button because the customer
+        // is already authenticated.
+        auth0LoginButton.style.display = "none";
 
 
-        // Display the actual Auth0 identity in the profile card.
-        // The unique ID comes from the Auth0 "sub" claim.
-        // The name and email come directly from the Auth0 profile.
+        // Display the authenticated customer profile.
+        // The information combines the Auth0 identity
+        // with the customer record returned by our API.
         customerInfo.innerHTML = `
-            <h3>Authenticated Identity</h3>
-            <p><strong>ID:</strong> ${user.sub}</p>
+            <h3>✓ Authenticated</h3>
             <p><strong>Name:</strong> ${user.name}</p>
             <p><strong>Email:</strong> ${user.email}</p>
-`       ;
+            <p><strong>Auth0 ID:</strong> ${user.sub}</p>
+        `;
 
 
         console.log(
@@ -404,203 +434,132 @@ async function createCodeChallenge(
 
 
 // ============================================================
-// Genesys Auth0 — Start authentication
+// GENESYS AUTHENTICATED WEB MESSAGING - IMPLICIT AUTHENTICATION
 // ============================================================
 
-async function startGenesysAuthentication() {
+// Store the Genesys Auth0 client ID separately from our normal SPA client.
+const GENESYS_AUTH0_CLIENT_ID =
+    "zH9WQuQVnBpUJwa3ccmAFmmo0ljuHJmO";
 
-    // Genesys-specific Auth0 callback.
-    const redirectUri =
-        window.location.origin +
-        "/genesys-callback";
+// Use a dedicated callback URL for the Genesys authentication flow.
+const GENESYS_CALLBACK_URI =
+    window.location.origin + "/genesys-callback";
 
+// Store the temporary OAuth state in sessionStorage.
+// sessionStorage survives the redirect but is cleared when the tab closes.
+const GENESYS_STATE_KEY = "genesys_auth_state";
 
-    // OAuth state protects against CSRF.
-    const state =
-        generateRandomString(32);
+// Store the temporary OAuth nonce in sessionStorage.
+const GENESYS_NONCE_KEY = "genesys_auth_nonce";
 
+// Store the ID token temporarily after Auth0 redirects back.
+const GENESYS_ID_TOKEN_KEY = "genesys_id_token";
 
-    // OIDC nonce protects the authentication response.
-    const nonce =
-        generateRandomString(32);
+// Track whether Genesys authentication has completed.
+// The variable is initialized with the persisted session state above.
 
+// ------------------------------------------------------------
+// Helper: generate a secure random OAuth value.
+// ------------------------------------------------------------
 
-    // PKCE verifier is kept by the browser.
-    const codeVerifier =
-        generateRandomString(64);
+function generateGenesysRandomValue() {
+    // Create 32 random bytes using the browser's cryptographic API.
+    const randomBytes = new Uint8Array(32);
 
+    // Fill the array with cryptographically secure random values.
+    window.crypto.getRandomValues(randomBytes);
 
-    // Create the SHA-256 PKCE challenge.
-    const codeChallenge =
-        await createCodeChallenge(
-            codeVerifier
-        );
-
-
-    // Store authentication information so that
-    // getAuthCode can provide it to Genesys later.
-    sessionStorage.setItem(
-        "genesys_auth_state",
-        state
-    );
-
-    sessionStorage.setItem(
-        "genesys_auth_nonce",
-        nonce
-    );
-
-    sessionStorage.setItem(
-        "genesys_code_verifier",
-        codeVerifier
-    );
-
-
-    // Build the Auth0 authorization URL.
-    const authorizationUrl =
-        new URL(
-            `https://${genesysAuth0Domain}/authorize`
-        );
-
-
-    // Use the OAuth Authorization Code flow.
-    authorizationUrl.searchParams.set(
-        "response_type",
-        "code"
-    );
-
-
-    // Use the Genesys Auth0 application's client ID.
-    authorizationUrl.searchParams.set(
-        "client_id",
-        genesysAuth0ClientId
-    );
-
-
-    // Use the Genesys-specific callback.
-    authorizationUrl.searchParams.set(
-        "redirect_uri",
-        redirectUri
-    );
-
-
-    // Request the OIDC identity scopes required by Genesys.
-    authorizationUrl.searchParams.set(
-        "scope",
-        "openid email profile"
-    );
-
-
-    // Include the CSRF protection value.
-    authorizationUrl.searchParams.set(
-        "state",
-        state
-    );
-
-
-    // Include the OIDC nonce.
-    authorizationUrl.searchParams.set(
-        "nonce",
-        nonce
-    );
-
-
-    // Include the PKCE challenge.
-    authorizationUrl.searchParams.set(
-        "code_challenge",
-        codeChallenge
-    );
-
-
-    // Tell Auth0 that S256 was used.
-    authorizationUrl.searchParams.set(
-        "code_challenge_method",
-        "S256"
-    );
-
-
-    console.log(
-        "Starting Genesys Auth0 authentication."
-    );
-
-
-    console.log(
-        "Genesys Auth0 redirect URI:",
-        redirectUri
-    );
-
-
-    // Redirect the browser to Auth0.
-    window.location.assign(
-        authorizationUrl.toString()
-    );
+    // Convert the bytes into a URL-safe Base64-like string.
+    return Array.from(randomBytes)
+        .map((byte) => byte.toString(16).padStart(2, "0"))
+        .join("");
 }
 
+// ------------------------------------------------------------
+// Helper: decode the JWT payload without logging the token.
+// ------------------------------------------------------------
 
-// ============================================================
-// Genesys Auth0 — Prepare callback
-// ============================================================
-//
-// IMPORTANT:
-//
-// This runs BEFORE AuthProvider is registered.
-//
-// Genesys can request getAuthCode very early, so the
-// authorization code must already be available.
+function decodeGenesysJwtPayload(token) {
+    // Split the JWT into header, payload, and signature.
+    const parts = token.split(".");
+
+    // Reject anything that is not a normal JWT.
+    if (parts.length !== 3) {
+        throw new Error("Genesys ID token is not a valid JWT.");
+    }
+
+    // Decode the Base64URL payload section.
+    const base64 = parts[1]
+        .replace(/-/g, "+")
+        .replace(/_/g, "/");
+
+    // Add padding required by atob().
+    const padded = base64.padEnd(
+        base64.length + ((4 - (base64.length % 4)) % 4),
+        "="
+    );
+
+    // Convert the decoded payload into a JavaScript object.
+    return JSON.parse(atob(padded));
+}
+
+// ------------------------------------------------------------
+// Prepare the Genesys Auth0 callback.
+// ------------------------------------------------------------
 
 function prepareGenesysCallback() {
-
-    // Only process the Genesys callback route.
-    if (
-        window.location.pathname !==
-        "/genesys-callback"
-    ) {
-
+    // Only process the callback when we are on the Genesys callback URL.
+    if (window.location.pathname !== "/genesys-callback") {
         return;
     }
 
+    // Read the URL fragment returned by Auth0.
+    const hashParams = new URLSearchParams(
+        window.location.hash.substring(1)
+    );
 
-    // Read the Auth0 callback parameters.
-    const params =
-        new URLSearchParams(
-            window.location.search
-        );
+    // Check whether Auth0 returned an OAuth error.
+    const authError = hashParams.get("error");
 
-
-    // Authorization code returned by Auth0.
-    const code =
-        params.get("code");
-
-
-    // State returned by Auth0.
-    const returnedState =
-        params.get("state");
-
-
-    // State originally generated by our application.
-    const expectedState =
-        sessionStorage.getItem(
-            "genesys_auth_state"
-        );
-
-
-    // Stop if Auth0 did not return a code.
-    if (!code) {
-
+    // Stop processing when Auth0 reports an error.
+    if (authError) {
         console.error(
-            "Genesys Auth0 callback did not contain an authorization code."
+            "Genesys Auth0 authentication failed:",
+            authError,
+            hashParams.get("error_description")
+        );
+
+        // Remove the OAuth fragment from the browser URL.
+        window.history.replaceState(
+            {},
+            document.title,
+            "/"
         );
 
         return;
     }
 
+    // Retrieve the returned ID token from the URL fragment.
+    const idToken = hashParams.get("id_token");
 
-    // Validate the OAuth state.
-    if (
-        !returnedState ||
-        !expectedState ||
-        returnedState !== expectedState
-    ) {
+    // Retrieve the OAuth state returned by Auth0.
+    const returnedState = hashParams.get("state");
 
+    // Retrieve the state that our application originally generated.
+    const expectedState =
+        sessionStorage.getItem(GENESYS_STATE_KEY);
+
+    // Make sure Auth0 returned an ID token.
+    if (!idToken) {
+        console.log(
+            "Genesys Auth0 callback did not contain an ID token."
+        );
+
+        return;
+    }
+
+    // Validate the OAuth state to protect against CSRF.
+    if (!returnedState || returnedState !== expectedState) {
         console.error(
             "Genesys Auth0 callback state validation failed."
         );
@@ -608,299 +567,300 @@ function prepareGenesysCallback() {
         return;
     }
 
+    // Retrieve the nonce that our application originally generated.
+    const expectedNonce =
+        sessionStorage.getItem(GENESYS_NONCE_KEY);
 
-    // Store the authorization code.
-    sessionStorage.setItem(
-        "genesys_auth_code",
-        code
-    );
+    try {
+        // Decode the ID token payload so we can validate its nonce.
+        const tokenPayload =
+            decodeGenesysJwtPayload(idToken);
 
+        // Make sure the ID token contains the expected nonce.
+        if (
+            expectedNonce &&
+            tokenPayload.nonce !== expectedNonce
+        ) {
+            console.error(
+                "Genesys Auth0 ID token nonce validation failed."
+            );
 
-    // The authorization code is now available
-    // for the Genesys AuthProvider.
-    genesysAuthenticated = true;
+            return;
+        }
 
-
-    console.log(
-        "Genesys Auth0 authorization code prepared."
-    );
-
-
-    console.log(
-        "Genesys Auth0 callback state validated."
-    );
-}
-
-
-// Prepare the Genesys callback BEFORE registering
-// the AuthProvider plugin.
-prepareGenesysCallback();
-
-
-// ============================================================
-// Genesys AuthProvider
-// ============================================================
-
-window.Genesys(
-    "registerPlugin",
-    "AuthProvider",
-    (AuthProvider) => {
-
-        console.log(
-            "Genesys AuthProvider plugin initialized."
+        // Store the validated ID token for AuthProvider.getAuthCode().
+        sessionStorage.setItem(
+            GENESYS_ID_TOKEN_KEY,
+            idToken
         );
 
-
-        // ----------------------------------------------------
-        // Genesys requests an authorization code.
-        // ----------------------------------------------------
-
-        AuthProvider.registerCommand(
-            "getAuthCode",
-            (event) => {
-
-                console.log(
-                    "Genesys requested an authorization code."
-                );
-
-
-                // Check whether Genesys is requesting
-                // a completely new authentication flow.
-                const forceUpdate =
-                    event.data &&
-                    event.data.forceUpdate;
-
-
-                if (forceUpdate) {
-
-                    console.log(
-                        "Genesys requested fresh authentication."
-                    );
-
-
-                    // Start a new Auth0 authentication flow.
-                    startGenesysAuthentication();
-
-
-                    // Auth0 will redirect the browser,
-                    // so there is no code to resolve yet.
-                    event.resolve();
-
-                    return;
-                }
-
-
-                // Retrieve the authorization code that was
-                // prepared before AuthProvider initialized.
-                const authCode =
-                    sessionStorage.getItem(
-                        "genesys_auth_code"
-                    );
-
-
-                // Retrieve the PKCE verifier associated
-                // with this authorization code.
-                const codeVerifier =
-                    sessionStorage.getItem(
-                        "genesys_code_verifier"
-                    );
-
-
-                // Retrieve the OIDC nonce.
-                const nonce =
-                    sessionStorage.getItem(
-                        "genesys_auth_nonce"
-                    );
-
-
-                // Genesys expects the same redirect URI
-                // used during the Auth0 authorization request.
-                const redirectUri =
-                    window.location.origin +
-                    "/genesys-callback";
-
-
-                // If Genesys does not have an authorization code yet,
-                // start the Genesys-specific Auth0 login flow.
-                if (!authCode || !nonce) {
-
-    // Do not redirect during page startup.
-    // Authentication is only started after the user
-    // explicitly requests a Genesys conversation.
-    if (!genesysChatRequested) {
+        // Mark Genesys authentication as prepared.
+        genesysAuthenticated = true;
 
         console.log(
-            "Genesys authentication requested during startup. Waiting for user action."
+            "Genesys Auth0 ID token prepared."
         );
-
-        // Resolve without starting Auth0 authentication.
-        event.resolve();
+    } catch (error) {
+        // Log token parsing/validation failures without exposing the token.
+        console.error(
+            "Unable to process Genesys Auth0 ID token:",
+            error
+        );
 
         return;
     }
 
-    console.log(
-        "User requested a conversation. Starting Genesys authentication."
+    // Remove the OAuth fragment from the visible browser URL.
+    window.history.replaceState(
+        {},
+        document.title,
+        "/genesys-callback"
+    );
+}
+
+// ------------------------------------------------------------
+// Start silent Genesys Auth0 authentication.
+// ------------------------------------------------------------
+
+function startGenesysAuthentication() {
+    // Generate a unique state value for this authentication request.
+    const state = generateGenesysRandomValue();
+
+    // Generate a unique nonce for the returned ID token.
+    const nonce = generateGenesysRandomValue();
+
+    // Save the state so the callback can validate it.
+    sessionStorage.setItem(
+        GENESYS_STATE_KEY,
+        state
     );
 
-    // Redirect to Auth0 to obtain the authorization code.
+    // Save the nonce so the callback can validate the ID token.
+    sessionStorage.setItem(
+        GENESYS_NONCE_KEY,
+        nonce
+    );
+
+    // Build the Auth0 authorization URL for the Genesys application.
+    const authorizationUrl =
+        "https://begallardo.us.auth0.com/authorize" +
+        "?client_id=" +
+        encodeURIComponent(GENESYS_AUTH0_CLIENT_ID) +
+        "&response_type=id_token" +
+        "&response_mode=fragment" +
+        "&redirect_uri=" +
+        encodeURIComponent(GENESYS_CALLBACK_URI) +
+        "&scope=" +
+        encodeURIComponent("openid email profile") +
+        "&state=" +
+        encodeURIComponent(state) +
+        "&nonce=" +
+        encodeURIComponent(nonce);
+
+    // Redirect to Auth0 and request silent authentication.
+    window.location.assign(authorizationUrl);
+}
+
+// ------------------------------------------------------------
+// Register the Genesys AuthProvider.
+// ------------------------------------------------------------
+
+function initializeGenesysAuthProvider(AuthProvider) {
+    // Receive and store the Genesys AuthProvider plugin instance.
+    // The chat button uses this reference to start authentication.
+    genesysAuthProvider = AuthProvider;
+
+    // Register the command Genesys uses to request authentication.
+    AuthProvider.registerCommand(
+        "getAuthCode",
+        (event) => {
+            // Log that Genesys requested authentication information.
+            console.log(
+                "Genesys requested authentication credentials."
+            );
+
+            // Retrieve the ID token prepared by the Auth0 callback.
+            const idToken =
+                sessionStorage.getItem(
+                    GENESYS_ID_TOKEN_KEY
+                );
+
+            // Check whether Genesys is requesting a forced update.
+            if (event.data && event.data.forceUpdate) {
+                // Start a fresh silent authentication attempt.
+                startGenesysAuthentication();
+
+                // Do not provide the previous token.
+                event.resolve({});
+
+                return;
+            }
+
+            // If an ID token is not available yet, start the Auth0
+            // authentication flow instead of returning empty credentials.
+            if (!idToken) {
+                // Remember that the user requested a conversation.
+                // The callback will use this flag to open Messenger
+                // after Genesys authentication succeeds.
+                    sessionStorage.setItem(
+                    "genesys_pending_conversation",
+                    "true"
+    );
+
+    // Start the Genesys-specific Auth0 implicit authentication.
     startGenesysAuthentication();
 
-    // The browser will navigate away, so there is no
-    // authentication data to resolve at this moment.
-    event.resolve();
+    // Do not provide credentials until Auth0 returns
+    // with the ID token.
+    event.resolve({});
 
     return;
 }
 
+            // Build the implicit authentication payload expected by Genesys.
+            const authData = {
+                // Genesys expects the property to be named "idToken".
+                idToken: idToken,
 
-                console.log(
-                    "Providing authorization code to Genesys."
+                // Tell Genesys which callback URL belongs to this token.
+                redirectUri: GENESYS_CALLBACK_URI
+            };
+
+            // Retrieve the nonce used during the Auth0 request.
+            const nonce =
+                sessionStorage.getItem(
+                    GENESYS_NONCE_KEY
                 );
 
-
-                // Return the authorization information to Genesys.
-                //
-                // authCode is the authorization code returned
-                // by Auth0.
-                //
-                // redirectUri must match the Auth0 request.
-                //
-                // nonce must match the original OIDC request.
-                //
-                // codeVerifier is required because we are
-                // using PKCE.
-                const authData = {
-                    authCode:
-                        authCode,
-
-                    redirectUri:
-                        redirectUri,
-
-                    nonce:
-                        nonce
-                };
-
-
-                // Include the PKCE verifier when available.
-                if (codeVerifier) {
-
-                    authData.codeVerifier =
-                        codeVerifier;
-                }
-
-
-                // Give the authentication data to Genesys.
-                event.resolve(
-                    authData
-                );
+            // Include the nonce when one is available.
+            if (nonce) {
+                authData.nonce = nonce;
             }
-        );
 
+            // Give the ID token to Genesys' implicit authentication flow.
+            event.resolve(authData);
 
-        // ----------------------------------------------------
-        // Genesys requests re-authentication.
-        // ----------------------------------------------------
+            // Log only that the credential was supplied.
+            console.log(
+                "Providing Genesys ID token to Genesys."
+            );
+        }
+    );
 
-        AuthProvider.registerCommand(
-            "reAuthenticate",
-            (event) => {
+    // Register the command Genesys uses when authentication must restart.
+    AuthProvider.registerCommand(
+        "reAuthenticate",
+        () => {
+            // Start a new silent Auth0 authentication request.
+            startGenesysAuthentication();
+        }
+    );
 
-                console.log(
-                    "Genesys requested re-authentication."
-                );
+    // Log when the AuthProvider becomes ready.
+    AuthProvider.subscribe(
+        "Auth.ready",
+        () => {
+            console.log(
+                "Genesys AuthProvider is ready."
+            );
+        }
+    );
 
-
-                // Start a new Auth0 login.
-                startGenesysAuthentication();
-
-
-                // Auth0 will redirect the browser.
-                event.resolve();
-            }
-        );
-
-
-        // ----------------------------------------------------
-        // Authentication ready event.
-        // ----------------------------------------------------
-
-        AuthProvider.subscribe(
-            "Auth.ready",
-            () => {
-
-                console.log(
-                    "Genesys AuthProvider authentication is ready."
-                );
-            }
-        );
-
-
-        // ----------------------------------------------------
-        // Authentication successful event.
-        // ----------------------------------------------------
-
-        AuthProvider.subscribe(
+    // Listen for successful Genesys authentication.
+    AuthProvider.subscribe(
         "Auth.authenticated",
-        (event) => {
+        () => {
+            // Mark Genesys as authenticated.
+            genesysAuthenticated = true;
 
-            // Confirm that Genesys authentication completed successfully.
+            // Log the successful authentication event.
             console.log(
                 "Genesys authentication succeeded."
             );
 
-            // Display the authentication event so we can inspect
-            // what identity information Genesys provides to the browser.
-            console.log(
-                "Genesys authentication event:",
+            // Check whether the user was waiting to open Messenger.
+            const pendingConversation =
+                sessionStorage.getItem(
+                    "genesys_pending_conversation"
+                );
+
+            // Open Messenger when a conversation was requested before
+            // authentication completed.
+            if (pendingConversation === "true") {
+                // Remove the pending flag before opening Messenger.
+                sessionStorage.removeItem(
+                    "genesys_pending_conversation"
+                );
+
+                // Give the Messenger plugin a moment to initialize.
+                setTimeout(() => {
+                    // Open the Genesys Messenger widget.
+                    window.Genesys(
+                        "command",
+                        "Messenger.open"
+                    );
+                }, 500);
+            }
+        }
+    );
+
+    // Listen for Genesys authentication errors.
+    AuthProvider.subscribe(
+        "Auth.error",
+        (event) => {
+            // Log the authentication error without exposing tokens.
+            console.error(
+                "Genesys authentication error:",
                 event
             );
+        }
+    );
 
-        // Mark Genesys authentication as available.
-        genesysAuthenticated = true;
-    }
-);
+    // Listen for Genesys authentication errors using the authError event.
+    AuthProvider.subscribe(
+        "Auth.authError",
+        (event) => {
+            // Log the authentication error without exposing tokens.
+            console.error(
+                "Genesys authentication error:",
+                event
+            );
+        }
+    );
 
-
-        // ----------------------------------------------------
-        // Authentication error event.
-        // ----------------------------------------------------
-
-        AuthProvider.subscribe(
-            "Auth.error",
-            (error) => {
-
-                console.error(
-                    "Genesys authentication error:",
-                    error
-                );
-            }
-        );
-
-
-        // ----------------------------------------------------
-        // Authentication failure event.
-        // ----------------------------------------------------
-
-        AuthProvider.subscribe(
-            "Auth.authError",
-            (error) => {
-
-                console.error(
-                    "Genesys authentication failed:",
-                    error
-                );
-            }
-        );
-
-
-        // Tell Genesys that our AuthProvider is ready.
+    // Tell Genesys the AuthProvider is ready only after the callback
+    // has prepared the ID token.
+    if (genesysAuthenticated) {
+        // Signal that the authentication provider can be used.
         AuthProvider.ready();
 
-
+        // Log that the provider is ready for authentication.
         console.log(
-            "Genesys AuthProvider is ready."
+            "Genesys AuthProvider authentication is ready."
         );
+    } else {
+        // Wait for the user to request Messenger authentication.
+        console.log(
+            "Genesys AuthProvider initialized. Waiting for user action."
+        );
+    }
+}
+
+// ------------------------------------------------------------
+// Process the callback before initializing the AuthProvider.
+// ------------------------------------------------------------
+
+// Prepare the Genesys Auth0 callback before registering the plugin.
+prepareGenesysCallback();
+
+// Register the Genesys AuthProvider plugin.
+window.Genesys(
+    "registerPlugin",
+    "AuthProvider",
+    (AuthProvider) => {
+        // Initialize our authentication commands using
+        // the AuthProvider instance supplied by Genesys.
+        initializeGenesysAuthProvider(AuthProvider);
     }
 );
 
@@ -913,33 +873,116 @@ chatButton.addEventListener(
     "click",
     () => {
 
-        // Record that the user explicitly requested a conversation.
-        // This allows Genesys authentication to start when needed.
-        genesysChatRequested = true;
+        // Prevent duplicate clicks while a conversation
+        // request is already being processed.
+        if (conversationStarting) {
+            return;
+        }
 
+        // Mark the conversation request as active.
+        conversationStarting = true;
+
+        // Confirm that the user explicitly requested
+        // a Genesys conversation.
         console.log(
             "Chat button clicked."
         );
 
+
+        // Remember that the user requested a conversation.
+        // This value survives the Auth0 redirect.
+        sessionStorage.setItem(
+            "genesys_pending_conversation",
+            "true"
+        );
+
+
+        // Disable the button so the user cannot
+        // accidentally start another request.
+        chatButton.disabled = true;
+
+        // Tell the user that the conversation is being started.
+        chatButton.textContent = "Connecting...";
+
+
+        // If Genesys authentication is already available,
+        // give Genesys time to finish loading Messenger
+        // before opening the widget.
         if (genesysAuthenticated) {
 
             console.log(
                 "Genesys authentication data is available."
             );
 
-        } else {
 
-            console.log(
-                "No Genesys authentication data found."
+            // Allow the Genesys Messenger plugin to finish
+            // initializing before issuing Messenger.open.
+            setTimeout(
+                () => {
+
+                    console.log(
+                        "Opening Genesys Messenger."
+                    );
+
+
+                    window.Genesys(
+                        "command",
+                        "Messenger.open"
+                    );
+
+
+                    // Re-enable the button after Messenger
+                    // has been requested to open.
+                    conversationStarting = false;
+                    chatButton.disabled = false;
+
+                    // Restore the original button label.
+                    chatButton.textContent = "Start Conversation";
+
+                },
+                500
             );
+
+
+            return;
         }
 
 
-        // Open the Messenger widget.
-        window.Genesys(
-            "command",
-            "Messenger.open"
+        console.log(
+            "Genesys authentication is not available."
         );
+
+
+        // AuthProvider must exist before we can activate it.
+        if (genesysAuthProvider) {
+
+            console.log(
+                "Starting Genesys authentication."
+            );
+
+
+            // Start the Genesys authentication lifecycle.
+            genesysAuthProvider.ready();
+
+
+            console.log(
+                "Genesys AuthProvider is ready."
+            );
+
+        } else {
+
+            console.error(
+                "Genesys AuthProvider is not available."
+            );
+
+            // Reset the state because authentication
+            // could not be started.
+            conversationStarting = false;
+            chatButton.disabled = false;
+
+            // Restore the original button label.
+            chatButton.textContent = "Start Conversation";
+        }
     }
 );
 

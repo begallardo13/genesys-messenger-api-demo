@@ -66,29 +66,25 @@ app.use(express.static("public"));
 
 const customers = [
     {
-        customerId: "CUS-10001",
+        // Auth0 "sub" is the unique identity for this customer.
+        auth0Id: "auth0|6a9e6ac72c8bbd2f93e5f7b0",
+
+        // Customer information used by the application.
         name: "Bien Gallardo",
         email: "bien@example.com",
         accountType: "Premium"
     },
     {
-        customerId: "CUS-10002",
+        // Placeholder Auth0 identity for the second demo customer.
+        // Replace this with Jane's real Auth0 "sub" when needed.
+        auth0Id: "auth0|jane-demo-user",
+
+        // Customer information used by the application.
         name: "Jane Doe",
         email: "jane@example.com",
         accountType: "Standard"
     }
 ];
-
-// ============================================================
-// Auth0 user → application customer mapping
-// ============================================================
-
-// This is a simple demo mapping.
-// In a real application, this relationship would normally
-// live in a database or be represented by a trusted claim.
-const auth0CustomerMapping = {
-    "auth0|6a9e6ac72c8bbd2f93e5f7b0": "CUS-10001"
-};
 
 // ============================================================
 // Phase 5 — Custom JWT authentication
@@ -374,23 +370,19 @@ app.get(
         // Get the Auth0 user's unique subject identifier.
         const auth0Subject = req.auth.sub;
 
-        // Look up which application customer belongs to
-        // to the authenticated Auth0 user.
-        const customerId =
-            auth0CustomerMapping[auth0Subject];
+        // Find the customer record using the Auth0 subject.
+        // This removes the need for a separate customer ID mapping.
+        const customer = customers.find(
+            (item) => item.auth0Id === auth0Subject
+        );
 
-        // Reject authenticated users that aren't linked
-        // to a customer in our application.
-        if (!customerId) {
+        // Reject authenticated users that don't have
+        // a customer record in our application.
+        if (!customer) {
             return res.status(403).json({
                 message: "Authenticated user is not linked to a customer"
             });
         }
-
-        // Find the customer's record.
-        const customer = customers.find(
-            (item) => item.customerId === customerId
-        );
 
         // Return 404 if the mapped customer no longer exists.
         if (!customer) {
@@ -405,50 +397,38 @@ app.get(
 );
 
 app.get(
-    "/api/customers/:customerId",
+    "/api/customers/:auth0Id",
 
     // Require a valid Auth0 access token.
     authenticateAuth0Token,
 
     (req, res) => {
 
-        // Get the requested customer ID from the URL.
-        const customerId = req.params.customerId;
+// Get the requested Auth0 identity from the URL.
+const requestedAuth0Id = req.params.auth0Id;
 
-        // Get the authenticated Auth0 user's subject.
-        const auth0Subject = req.auth.sub;
+// Get the authenticated Auth0 user's subject.
+const auth0Subject = req.auth.sub;
 
-        // Look up which application customer belongs to
-        // to the authenticated Auth0 user.
-        const authenticatedCustomerId =
-            auth0CustomerMapping[auth0Subject];
+// Make sure the authenticated user can only access
+// their own customer record.
+if (auth0Subject !== requestedAuth0Id) {
+    return res.status(403).json({
+        message: "You are not authorized to access this customer"
+    });
+}
 
-        // Reject Auth0 users that aren't mapped to a customer.
-        if (!authenticatedCustomerId) {
-            return res.status(403).json({
-                message: "Authenticated user is not linked to a customer"
-            });
-        }
+// Find the customer record using the Auth0 identity.
+const customer = customers.find(
+    (item) => item.auth0Id === requestedAuth0Id
+);
 
-        // Make sure the authenticated user can only access
-        // their own customer record.
-        if (authenticatedCustomerId !== customerId) {
-            return res.status(403).json({
-                message: "You are not authorized to access this customer"
-            });
-        }
-
-        // Find the customer record.
-        const customer = customers.find(
-            (item) => item.customerId === customerId
-        );
-
-        // Return 404 if the customer doesn't exist.
-        if (!customer) {
-            return res.status(404).json({
-                message: "Customer not found"
-            });
-        }
+// Return 404 if the customer doesn't exist.
+if (!customer) {
+    return res.status(404).json({
+        message: "Customer not found"
+    });
+}
 
         // Return the customer information.
         res.json(customer);
